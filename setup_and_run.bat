@@ -13,48 +13,50 @@ set "PY="
 
 :: Try 'py' first (Windows Python Launcher - most reliable)
 py --version >nul 2>&1
-if %errorlevel% equ 0 (
+if not errorlevel 1 (
     set "PY=py"
     goto python_found
 )
 
 :: Try 'python3'
 python3 --version >nul 2>&1
-if %errorlevel% equ 0 (
+if not errorlevel 1 (
     set "PY=python3"
     goto python_found
 )
 
 :: Try 'python' but verify it has pip (skip MSYS2/MinGW)
 python --version >nul 2>&1
-if %errorlevel% equ 0 (
-    python -m pip --version >nul 2>&1
-    if %errorlevel% equ 0 (
-        set "PY=python"
-        goto python_found
-    ) else (
-        echo       Found Python but it has no pip (likely MSYS2/MinGW^).
-        echo       Skipping...
-    )
-)
+if errorlevel 1 goto no_python
 
-:: No Python found - install
+python -m pip --version >nul 2>&1
+if errorlevel 1 (
+    echo       Found Python but it has no pip (likely MSYS2/MinGW^).
+    echo       Skipping...
+    goto no_python
+)
+set "PY=python"
+goto python_found
+
+:no_python
 echo       Python not found. Attempting auto-install...
 echo.
 
+:: Try winget
 winget --version >nul 2>&1
-if %errorlevel% equ 0 (
-    echo       Installing Python via winget...
-    winget install --id Python.Python.3.12 -e --source winget --accept-package-agreements --accept-source-agreements
-    if %errorlevel% equ 0 (
-        echo       Python installed via winget!
-        echo       Please RESTART this script for PATH to take effect.
-        echo.
-        pause
-        exit /b 0
-    )
-)
+if errorlevel 1 goto no_winget_python
 
+echo       Installing Python via winget...
+winget install --id Python.Python.3.12 -e --source winget --accept-package-agreements --accept-source-agreements
+if errorlevel 1 goto no_winget_python
+
+echo       Python installed via winget!
+echo       Please RESTART this script for PATH to take effect.
+echo.
+pause
+exit /b 0
+
+:no_winget_python
 echo       Trying Microsoft Store...
 start ms-windows-store://pdp/?productid=9NCVDN91XZQP
 echo.
@@ -77,7 +79,7 @@ echo [2/4] Checking FFmpeg...
 set "FFMPEG_DIR=%~dp0ffmpeg"
 
 ffmpeg -version >nul 2>&1
-if %errorlevel% equ 0 (
+if not errorlevel 1 (
     echo       OK (system PATH^)
     goto ffmpeg_done
 )
@@ -90,15 +92,17 @@ if exist "%FFMPEG_DIR%\ffmpeg.exe" (
 
 echo       FFmpeg not found. Attempting auto-install...
 
+:: Try winget
 winget --version >nul 2>&1
-if %errorlevel% equ 0 (
-    winget install --id Gyan.FFmpeg -e --source winget --accept-package-agreements --accept-source-agreements
-    if %errorlevel% equ 0 (
-        echo       FFmpeg installed via winget!
-        goto ffmpeg_done
-    )
+if errorlevel 1 goto ffmpeg_download
+
+winget install --id Gyan.FFmpeg -e --source winget --accept-package-agreements --accept-source-agreements
+if not errorlevel 1 (
+    echo       FFmpeg installed via winget!
+    goto ffmpeg_done
 )
 
+:ffmpeg_download
 echo       Downloading FFmpeg via PowerShell (this may take a minute^)...
 powershell -ExecutionPolicy Bypass -Command ^
     "$ProgressPreference = 'SilentlyContinue'; " ^
@@ -138,7 +142,7 @@ echo.
 echo [3/4] Installing Python packages...
 %PY% -m pip install --upgrade pip 2>nul
 %PY% -m pip install --upgrade yt-dlp customtkinter
-if %errorlevel% neq 0 (
+if errorlevel 1 (
     echo.
     echo       ERROR: Failed to install packages.
     echo       Try running manually: %PY% -m pip install yt-dlp customtkinter
@@ -147,8 +151,9 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
+:: Verify packages actually installed
 %PY% -c "import customtkinter; import yt_dlp; print('       Packages verified OK')"
-if %errorlevel% neq 0 (
+if errorlevel 1 (
     echo.
     echo       ERROR: Packages installed but cannot be imported.
     echo       Try: %PY% -m pip install --force-reinstall yt-dlp customtkinter
@@ -167,7 +172,7 @@ echo ============================================
 echo.
 
 %PY% "%~dp0app.py"
-if %errorlevel% neq 0 (
+if errorlevel 1 (
     echo.
     echo App exited with error. Check above for details.
     pause
