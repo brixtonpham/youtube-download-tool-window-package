@@ -513,9 +513,13 @@ class App(ctk.CTk):
         q = self.quality_var.get()
         if has_ffmpeg:
             if q == "Best":
-                return "bestvideo+bestaudio[ext=m4a]/bestvideo+bestaudio/best"
-            height = q.replace("p", "")
-            return f"bestvideo[height<={height}]+bestaudio[ext=m4a]/bestvideo[height<={height}]+bestaudio/best"
+                return ("bestvideo[vcodec^=avc1]+bestaudio[ext=m4a]"
+                        "/bestvideo[ext=mp4]+bestaudio[ext=m4a]"
+                        "/bestvideo+bestaudio/best")
+            h = q.replace("p", "")
+            return (f"bestvideo[height<={h}][vcodec^=avc1]+bestaudio[ext=m4a]"
+                    f"/bestvideo[height<={h}][ext=mp4]+bestaudio[ext=m4a]"
+                    f"/bestvideo[height<={h}]+bestaudio/best")
         if q == "Best":
             return "best"
         height = q.replace("p", "")
@@ -639,7 +643,10 @@ class App(ctk.CTk):
             opts["ffmpeg_location"] = ffmpeg_dir
         if is_ffmpeg_available():
             opts["merge_output_format"] = "mp4"
-            opts["postprocessor_args"] = {"merger": ["-c:a", "aac", "-b:a", "192k"]}
+            opts["postprocessor_args"] = {
+                "merger": ["-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+                           "-movflags", "+faststart"],
+            }
         opts.update(cookie_opts)
         return opts
 
