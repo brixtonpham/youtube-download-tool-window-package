@@ -67,8 +67,24 @@ class DownloadDB:
                 );
                 CREATE INDEX IF NOT EXISTS idx_videos_channel ON videos(channel_id);
                 CREATE INDEX IF NOT EXISTS idx_videos_status ON videos(status);
+                CREATE TABLE IF NOT EXISTS settings (
+                    key   TEXT PRIMARY KEY,
+                    value TEXT
+                );
             """)
             self.conn.execute("UPDATE videos SET status='pending' WHERE status='downloading'")
+            self.conn.commit()
+
+    def get_setting(self, key, default=None):
+        with self.lock:
+            row = self.conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+            return row["value"] if row else default
+
+    def set_setting(self, key, value):
+        with self.lock:
+            self.conn.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (key, value))
             self.conn.commit()
 
     def upsert_channel(self, channel_id, name, url, handle=None):
@@ -314,7 +330,8 @@ class App(ctk.CTk):
 
         ctk.CTkLabel(opts, text="Save to:").grid(row=0, column=0, padx=(8, 4), pady=6)
         self.dir_entry = ctk.CTkEntry(opts, width=250, font=ctk.CTkFont(size=12))
-        self.dir_entry.insert(0, os.path.join(os.path.expanduser("~"), "YouTube"))
+        saved_dir = self.db.get_setting("output_dir", os.path.join(os.path.expanduser("~"), "YouTube"))
+        self.dir_entry.insert(0, saved_dir)
         self.dir_entry.grid(row=0, column=1, pady=6)
 
         self.browse_btn = ctk.CTkButton(opts, text="Browse", width=60,
@@ -604,6 +621,7 @@ class App(ctk.CTk):
                 text="WARNING: FFmpeg not found. Video quality limited. Install FFmpeg for best results.")
 
         output_dir = self.dir_entry.get().strip() or os.path.join(os.path.expanduser("~"), "YouTube")
+        self.db.set_setting("output_dir", output_dir)
         fmt = self._quality_format()
         cookie_mode = self.cookie_var.get()
         cookie_file = self.cookie_file_path
