@@ -539,9 +539,36 @@ class App(ctk.CTk):
                          args=(video_list, output_dir, fmt, cookie_mode, cookie_file, channel_id),
                          daemon=True).start()
 
+    def _build_download_opts(self, fmt, output_dir, progress_hook, cookie_opts):
+        opts = {
+            "format": fmt,
+            "merge_output_format": "mp4",
+            "outtmpl": os.path.join(output_dir, "%(channel)s", "%(title)s [%(id)s].%(ext)s"),
+            "windowsfilenames": True,
+            "quiet": True,
+            "no_warnings": True,
+            "sleep_interval": 5,
+            "max_sleep_interval": 10,
+            "sleep_interval_requests": 1.5,
+            "retries": 10,
+            "fragment_retries": 15,
+            "concurrent_fragment_downloads": 3,
+            "progress_hooks": [progress_hook],
+        }
+        ffmpeg_dir = get_ffmpeg_location()
+        if ffmpeg_dir:
+            opts["ffmpeg_location"] = ffmpeg_dir
+        opts.update(cookie_opts)
+        return opts
+
+    def _try_download(self, url, opts):
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            return ydl.download([url])
+
     def _download_worker(self, video_list, output_dir, fmt, cookie_mode, cookie_file, channel_id):
         os.makedirs(output_dir, exist_ok=True)
         total = len(video_list)
+        cookie_failed = False
 
         for i, (vid, url) in enumerate(video_list):
             if self.should_stop:
@@ -566,31 +593,19 @@ class App(ctk.CTk):
                 elif d["status"] == "finished":
                     self.update_queue.put(("video_merging", _vid))
 
-            cookie_opts = get_cookie_opts(cookie_mode, cookie_file)
+            use_cookie = cookie_mode != "None" and not cookie_failed
+            cookie_opts = get_cookie_opts(cookie_mode, cookie_file) if use_cookie else {}
 
-            opts = {
-                "format": fmt,
-                "merge_output_format": "mp4",
-                "outtmpl": os.path.join(output_dir, "%(channel)s", "%(title)s [%(id)s].%(ext)s"),
-                "windowsfilenames": True,
-                "quiet": True,
-                "no_warnings": True,
-                "sleep_interval": 5,
-                "max_sleep_interval": 10,
-                "sleep_interval_requests": 1.5,
-                "retries": 10,
-                "fragment_retries": 15,
-                "concurrent_fragment_downloads": 3,
-                "progress_hooks": [progress_hook],
-            }
-            ffmpeg_dir = get_ffmpeg_location()
-            if ffmpeg_dir:
-                opts["ffmpeg_location"] = ffmpeg_dir
-            opts.update(cookie_opts)
+            opts = self._build_download_opts(fmt, output_dir, progress_hook, cookie_opts)
 
             try:
-                with yt_dlp.YoutubeDL(opts) as ydl:
-                    ret = ydl.download([url])
+                ret = self._try_download(url, opts)
+                if ret != 0:
+                    if use_cookie:
+                        self.update_queue.put(("cookie_fallback", vid))
+                        opts_no_cookie = self._build_download_opts(fmt, output_dir, progress_hook, {})
+                        ret = self._try_download(url, opts_no_cookie)
+
                 if ret != 0:
                     self.db.set_video_status(vid, "failed", error_msg="Download returned non-zero")
                     self.update_queue.put(("video_error", (vid, "Download failed")))
@@ -598,6 +613,21 @@ class App(ctk.CTk):
                     self.db.set_video_status(vid, "completed")
                     self.update_queue.put(("video_done", vid))
             except Exception as ex:
+                err_msg = str(ex).lower()
+                if use_cookie and ("cookie" in err_msg or "permission" in err_msg
+                                   or "could not find" in err_msg or "decrypt" in err_msg
+                                   or "locked" in err_msg):
+                    cookie_failed = True
+                    self.update_queue.put(("cookie_error", cookie_mode))
+                    try:
+                        opts_no_cookie = self._build_download_opts(fmt, output_dir, progress_hook, {})
+                        ret = self._try_download(url, opts_no_cookie)
+                        if ret == 0:
+                            self.db.set_video_status(vid, "completed")
+                            self.update_queue.put(("video_done", vid))
+                            continue
+                    except Exception:
+                        pass
                 self.db.set_video_status(vid, "failed", error_msg=str(ex))
                 self.update_queue.put(("video_error", (vid, str(ex))))
 
@@ -670,6 +700,19 @@ class App(ctk.CTk):
             if vid in self.video_rows:
                 self.video_rows[vid].set_progress(1.0)
                 self.video_rows[vid].set_status("Done ✓", "green")
+
+        elif msg_type == "cookie_error":
+            browser = data
+            self.cookie_var.set("None")
+            self.cookie_info.configure(text=f"{browser} cookies failed, using guest mode")
+            self.status_bar.configure(
+                text=f"Cookie error: {browser} cookies cannot be read. Switched to guest mode. "
+                     f"On Windows, only Firefox cookies work reliably.")
+
+        elif msg_type == "cookie_fallback":
+            vid = data
+            if vid in self.video_rows:
+                self.video_rows[vid].set_status("Retrying...", "orange")
 
         elif msg_type == "video_start":
             vid, num, total = data
