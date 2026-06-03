@@ -321,6 +321,10 @@ class App(ctk.CTk):
                                         command=self._browse_dir)
         self.browse_btn.grid(row=0, column=2, padx=4, pady=6)
 
+        self.open_folder_btn = ctk.CTkButton(opts, text="Open", width=50,
+                                             command=self._open_output_dir)
+        self.open_folder_btn.grid(row=0, column=3, padx=(0, 4), pady=6)
+
         ctk.CTkLabel(opts, text="Quality:").grid(row=0, column=3, padx=(8, 4), pady=6)
         self.quality_var = ctk.StringVar(value="1080p")
         self.quality_menu = ctk.CTkOptionMenu(opts, values=["360p", "480p", "720p", "1080p", "Best"],
@@ -478,6 +482,18 @@ class App(ctk.CTk):
         if d:
             self.dir_entry.delete(0, "end")
             self.dir_entry.insert(0, d)
+
+    def _open_output_dir(self):
+        d = self.dir_entry.get().strip() or os.path.join(os.path.expanduser("~"), "YouTube")
+        if not os.path.isdir(d):
+            os.makedirs(d, exist_ok=True)
+        import subprocess
+        if sys.platform == "win32":
+            os.startfile(d)
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", d])
+        else:
+            subprocess.Popen(["xdg-open", d])
 
     def _normalize_channel_url(self, url):
         url = url.strip().rstrip("/")
