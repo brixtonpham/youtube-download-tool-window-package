@@ -21,6 +21,14 @@ def get_ffmpeg_location():
     return None
 
 
+def is_ffmpeg_available():
+    local = get_ffmpeg_location()
+    if local:
+        return True
+    import shutil
+    return shutil.which("ffmpeg") is not None
+
+
 # ============================================================
 # Database: per-channel progress tracking
 # ============================================================
@@ -447,11 +455,17 @@ class App(ctk.CTk):
         return url
 
     def _quality_format(self):
+        has_ffmpeg = is_ffmpeg_available()
         q = self.quality_var.get()
+        if has_ffmpeg:
+            if q == "Best":
+                return "bestvideo+bestaudio/best"
+            height = q.replace("p", "")
+            return f"bestvideo[height<={height}]+bestaudio/best"
         if q == "Best":
-            return "bv*+ba/b"
+            return "best"
         height = q.replace("p", "")
-        return f"bv[height<={height}]+ba/b"
+        return f"best[height<={height}]/best"
 
     # --- Fetch ---
     def _on_fetch(self):
@@ -527,6 +541,10 @@ class App(ctk.CTk):
         self.history_menu.configure(state="disabled")
         self.stop_btn.configure(state="normal")
 
+        if not is_ffmpeg_available():
+            self.status_bar.configure(
+                text="WARNING: FFmpeg not found. Video quality limited. Install FFmpeg for best results.")
+
         output_dir = self.dir_entry.get().strip() or os.path.join(os.path.expanduser("~"), "YouTube")
         fmt = self._quality_format()
         cookie_mode = self.cookie_var.get()
@@ -542,7 +560,6 @@ class App(ctk.CTk):
     def _build_download_opts(self, fmt, output_dir, progress_hook, cookie_opts):
         opts = {
             "format": fmt,
-            "merge_output_format": "mp4",
             "outtmpl": os.path.join(output_dir, "%(channel)s", "%(title)s [%(id)s].%(ext)s"),
             "windowsfilenames": True,
             "quiet": True,
@@ -558,6 +575,12 @@ class App(ctk.CTk):
         ffmpeg_dir = get_ffmpeg_location()
         if ffmpeg_dir:
             opts["ffmpeg_location"] = ffmpeg_dir
+        if is_ffmpeg_available():
+            opts["merge_output_format"] = "mp4"
+            opts["postprocessors"] = [{
+                "key": "FFmpegVideoRemuxer",
+                "preferedformat": "mp4",
+            }]
         opts.update(cookie_opts)
         return opts
 
