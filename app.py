@@ -325,11 +325,11 @@ class App(ctk.CTk):
                                              command=self._open_output_dir)
         self.open_folder_btn.grid(row=0, column=3, padx=(0, 4), pady=6)
 
-        ctk.CTkLabel(opts, text="Quality:").grid(row=0, column=3, padx=(8, 4), pady=6)
+        ctk.CTkLabel(opts, text="Quality:").grid(row=0, column=4, padx=(8, 4), pady=6)
         self.quality_var = ctk.StringVar(value="1080p")
         self.quality_menu = ctk.CTkOptionMenu(opts, values=["360p", "480p", "720p", "1080p", "Best"],
                                               variable=self.quality_var, width=80)
-        self.quality_menu.grid(row=0, column=4, pady=6)
+        self.quality_menu.grid(row=0, column=5, pady=6)
 
         # --- Row 3: Cookie + Actions ---
         opts2 = ctk.CTkFrame(self)
