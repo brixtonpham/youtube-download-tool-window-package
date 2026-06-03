@@ -200,22 +200,27 @@ class VideoRow(ctk.CTkFrame):
         self.video_id = video_id
         self.url = url
 
-        self.grid_columnconfigure(1, weight=1)
+        self.grid_columnconfigure(2, weight=1)
 
-        self.num_label = ctk.CTkLabel(self, text=f"{index}.", width=40, anchor="e",
+        self.selected = ctk.BooleanVar(value=(initial_status != "completed"))
+        self.checkbox = ctk.CTkCheckBox(self, text="", variable=self.selected,
+                                        width=24, checkbox_width=18, checkbox_height=18)
+        self.checkbox.grid(row=0, column=0, padx=(2, 2))
+
+        self.num_label = ctk.CTkLabel(self, text=f"{index}.", width=30, anchor="e",
                                       font=ctk.CTkFont(size=12))
-        self.num_label.grid(row=0, column=0, padx=(0, 6), sticky="w")
+        self.num_label.grid(row=0, column=1, padx=(0, 4), sticky="w")
 
-        self.title_label = ctk.CTkLabel(self, text=title, anchor="w", wraplength=480,
+        self.title_label = ctk.CTkLabel(self, text=title, anchor="w", wraplength=440,
                                         font=ctk.CTkFont(size=12))
-        self.title_label.grid(row=0, column=1, sticky="ew")
+        self.title_label.grid(row=0, column=2, sticky="ew")
 
         self.status_label = ctk.CTkLabel(self, text="", width=130, anchor="e",
                                          font=ctk.CTkFont(size=12), text_color="gray")
-        self.status_label.grid(row=0, column=2, padx=(6, 0))
+        self.status_label.grid(row=0, column=3, padx=(6, 0))
 
         self.progress = ctk.CTkProgressBar(self, height=6)
-        self.progress.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(2, 4))
+        self.progress.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(2, 4))
         self.progress.set(0)
 
         self._apply_status(initial_status)
@@ -271,7 +276,7 @@ class App(ctk.CTk):
 
     def _build_ui(self):
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(4, weight=1)
+        self.grid_rowconfigure(5, weight=1)
 
         # --- Row 0: Channel history ---
         hist_frame = ctk.CTkFrame(self)
@@ -358,15 +363,48 @@ class App(ctk.CTk):
                                       command=self._on_stop, state="disabled")
         self.stop_btn.grid(row=0, column=4, padx=(0, 8), pady=6)
 
-        # --- Row 4: Video list ---
-        self.scroll_frame = ctk.CTkScrollableFrame(self, label_text="Videos")
-        self.scroll_frame.grid(row=4, column=0, sticky="nsew", padx=12, pady=(0, 6))
-        self.scroll_frame.grid_columnconfigure(0, weight=1)
+        # --- Row 4: Select controls + Video list ---
+        list_header = ctk.CTkFrame(self, fg_color="transparent")
+        list_header.grid(row=4, column=0, sticky="ew", padx=12, pady=(0, 2))
 
-        # --- Row 5: Status bar ---
+        self.select_all_btn = ctk.CTkButton(list_header, text="Select All", width=80,
+                                            height=26, font=ctk.CTkFont(size=11),
+                                            command=self._select_all)
+        self.select_all_btn.grid(row=0, column=0, padx=(0, 4))
+
+        self.select_none_btn = ctk.CTkButton(list_header, text="Select None", width=80,
+                                             height=26, font=ctk.CTkFont(size=11),
+                                             command=self._select_none)
+        self.select_none_btn.grid(row=0, column=1, padx=(0, 4))
+
+        self.select_failed_btn = ctk.CTkButton(list_header, text="Select Failed", width=90,
+                                               height=26, font=ctk.CTkFont(size=11),
+                                               command=self._select_failed)
+        self.select_failed_btn.grid(row=0, column=2)
+
+        self.scroll_frame = ctk.CTkScrollableFrame(self, label_text="Videos")
+        self.scroll_frame.grid(row=5, column=0, sticky="nsew", padx=12, pady=(0, 6))
+        self.scroll_frame.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(5, weight=1)
+
+        # --- Row 6: Status bar ---
         self.status_bar = ctk.CTkLabel(self, text="Select a channel from history or paste a new URL",
                                        font=ctk.CTkFont(size=12), anchor="w")
-        self.status_bar.grid(row=5, column=0, sticky="ew", padx=16, pady=(0, 10))
+        self.status_bar.grid(row=6, column=0, sticky="ew", padx=16, pady=(0, 10))
+
+    # --- Selection ---
+    def _select_all(self):
+        for row in self.video_rows.values():
+            row.selected.set(True)
+
+    def _select_none(self):
+        for row in self.video_rows.values():
+            row.selected.set(False)
+
+    def _select_failed(self):
+        for row in self.video_rows.values():
+            status_text = row.status_label.cget("text") or ""
+            row.selected.set("Error" in status_text or "Queued" in status_text)
 
     # --- Cookie ---
     def _on_cookie_change(self, value):
@@ -459,9 +497,9 @@ class App(ctk.CTk):
         q = self.quality_var.get()
         if has_ffmpeg:
             if q == "Best":
-                return "bestvideo+bestaudio/best"
+                return "bestvideo+bestaudio[ext=m4a]/bestvideo+bestaudio/best"
             height = q.replace("p", "")
-            return f"bestvideo[height<={height}]+bestaudio/best"
+            return f"bestvideo[height<={height}]+bestaudio[ext=m4a]/bestvideo[height<={height}]+bestaudio/best"
         if q == "Best":
             return "best"
         height = q.replace("p", "")
@@ -551,7 +589,15 @@ class App(ctk.CTk):
         cookie_file = self.cookie_file_path
         channel_id = self.current_channel_id
 
-        video_list = [(vid, row.url) for vid, row in self.video_rows.items()]
+        video_list = [(vid, row.url) for vid, row in self.video_rows.items() if row.selected.get()]
+        if not video_list:
+            self.status_bar.configure(text="No videos selected. Use checkboxes to select videos.")
+            self.is_downloading = False
+            self.download_btn.configure(state="normal")
+            self.fetch_btn.configure(state="normal")
+            self.history_menu.configure(state="normal")
+            self.stop_btn.configure(state="disabled")
+            return
 
         threading.Thread(target=self._download_worker,
                          args=(video_list, output_dir, fmt, cookie_mode, cookie_file, channel_id),
@@ -577,10 +623,7 @@ class App(ctk.CTk):
             opts["ffmpeg_location"] = ffmpeg_dir
         if is_ffmpeg_available():
             opts["merge_output_format"] = "mp4"
-            opts["postprocessors"] = [{
-                "key": "FFmpegVideoRemuxer",
-                "preferedformat": "mp4",
-            }]
+            opts["postprocessor_args"] = {"merger": ["-c:a", "aac", "-b:a", "192k"]}
         opts.update(cookie_opts)
         return opts
 
